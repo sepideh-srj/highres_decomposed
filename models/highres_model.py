@@ -2,6 +2,10 @@ import torch
 from .base_model import BaseModel
 from . import networks
 
+import numpy as np
+from PIL import Image
+
+from models.altered_midas.flash_nets import GenerateNet
 
 class HighResModel(BaseModel):
     @staticmethod
@@ -28,18 +32,23 @@ class HighResModel(BaseModel):
             self.model_names = ['G', 'D']
             if not self.opt.no_vgg_loss:
                 self.loss_names += ['VGG']
-            if self.opt.lambda_gradient:
-                self.loss_names += ['G_gradient']
+            # if self.opt.lambda_gradient:
+                # self.loss_names += ['G_gradient']
         else:  # during test time, only load G
             self.model_names = ['G']
+
         # define networks (both generator and discriminator)
         if self.isTrain:
             # define a discriminator; conditional GANs need to take both input and output images; Therefore,
             # #channels for D is input_nc + output_nc
+            self.netG = GenerateNet(input_channels=6, output_channels=3, activation='tanh')
+            self.netG = networks.init_net(self.netG, gpu_ids=self.gpu_ids)
+            
             self.netD = networks.define_D(opt.input_nc + opt.output_nc, opt.ndf, opt.netD,
                                           opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
             if self.opt.gan_mode == 'wgangp':
                 self.loss_names += ['gradient_penalty']
+
         if self.isTrain:
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
@@ -71,17 +80,25 @@ class HighResModel(BaseModel):
         self.fake_ratio = self.netG(self.input)  # G(A)
         # self.real_output = (2 * (self.input_real + 1)) / (3 * self.fake_ratio + 1) - 1
         if not self.opt.ratio:
-            self.fake_output = (
-                                       3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+            self.fake_output = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+       
+        # print("input range:", self.input_real.min(), self.input_real.max())
+        pred = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+        # save_img(pred, '/project/aksoy-lab/chris/high_res_output/debug/AtoB/pred.png', norm=True)
+        # save_img(self.gr_high, '/project/aksoy-lab/chris/high_res_output/debug/AtoB/grnd.png', norm=True)
+        save_img(pred, '/project/aksoy-lab/chris/high_res_output/debug/BtoA/pred.png', norm=True)
+        save_img(self.gr_high, '/project/aksoy-lab/chris/high_res_output/debug/BtoA/grnd.png', norm=True)
+
 
     def backward_D(self):
         """Calculate GAN loss for the discriminator"""
         # Fake; stop backprop to the generator by detaching fake_B
+        # we use conditional GANs; we need to feed both input and output to the discriminator
         if self.opt.ratio:
             fake_AB = torch.cat((self.input, self.fake_ratio), 1)
         else:
-            fake_AB = torch.cat((self.input, self.fake_output),
-                                1)  # we use conditional GANs; we need to feed both input and output to the discriminator
+            fake_AB = torch.cat((self.input, self.fake_output), 1)  
+
         pred_fake = self.netD(fake_AB.detach())
         self.loss_D_fake = self.criterionGAN(pred_fake, False)
         # Real
@@ -108,39 +125,41 @@ class HighResModel(BaseModel):
             fake_AB = torch.cat((self.input, self.fake_ratio), 1)
         else:
             fake_AB = torch.cat((self.input, self.fake_output), 1)
+
         pred_fake = self.netD(fake_AB)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
         if self.opt.ratio:
-            self.loss_G_L1 = self.criterionL1(self.fake_ratio, self.ratio_real) * self.opt.lambda_L1
-        else:
-            self.loss_G_L1 = self.criterionL1(self.fake_output, self.gr_high) * self.opt.lambda_L1
+            self.fake_output = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+            # self.loss_G_L1 = self.criterionL1(self.fake_ratio, self.ratio_real) * self.opt.lambda_L1
+        # else:
+        self.loss_G_L1 = l1_grad_loss(self.fake_output, self.gr_high) * self.opt.lambda_L1
 
         self.loss_VGG = 0
         if not self.opt.no_vgg_loss:
             if self.opt.ratio:
-                self.fake_output = (
-                                               3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+                self.fake_output = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+
             self.loss_VGG = self.criterionVGG(self.fake_output, self.gr_high) * self.opt.lambda_feat
 
-        self.loss_G_gradient = 0
-        if self.opt.lambda_gradient:
-            if self.opt.ratio:
-                self.fake_output = (
-                                           3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
-            gt = self.gr_high
-            pred = self.fake_output
-            reduction = reduction_batch_based
-            self.loss_G_gradient = 0.0
-            for ds in range(4):
-                scale = pow(2, ds)
-                pred_scale = pred[:, :, ::scale, ::scale]
-                gt_scale = gt[:, :, ::scale, ::scale]
+        # self.loss_G_gradient = 0
+        # if self.opt.lambda_gradient:
+        #     if self.opt.ratio:
+        #         self.fake_output = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
 
-                self.loss_G_gradient += self.gradient_loss(pred_scale,
-                                                           gt_scale, reduction) * self.opt.lambda_gradient
+        #     gt = self.gr_high
+        #     pred = self.fake_output
+        #     reduction = reduction_batch_based
+        #     self.loss_G_gradient = 0.0
+        #     for ds in range(4):
+        #         scale = pow(2, ds)
+        #         pred_scale = pred[:, :, ::scale, ::scale]
+        #         gt_scale = gt[:, :, ::scale, ::scale]
+
+        #         self.loss_G_gradient += self.gradient_loss(pred_scale,
+                                                           # gt_scale, reduction) * self.opt.lambda_gradient
         # combine loss and calculate gradients
-        self.loss_G = self.loss_G_GAN + self.loss_G_L1 + self.loss_VGG + self.loss_G_gradient
+        self.loss_G = self.loss_G_GAN + self.loss_G_L1 + self.loss_VGG # + self.loss_G_gradient
         self.loss_G.backward()
 
     def optimize_parameters(self):
@@ -156,16 +175,54 @@ class HighResModel(BaseModel):
         self.backward_G()  # calculate graidents for G
         self.optimizer_G.step()  # udpate G's weights
 
-    def gradient_loss(self, prediction, target, reduction):
-        M = torch.sum(target, (2, 3))
+    # def gradient_loss(self, prediction, target, reduction):
+    #     M = torch.sum(target, (2, 3))
 
-        diff = prediction - target
-        grad_x = torch.abs(diff[:, :, :, 1:] - diff[:, :, :, :-1])
-        grad_y = torch.abs(diff[:, :, 1:, :] - diff[:, :, :-1, :])
-        image_loss = torch.sum(grad_x, (2, 3)) + torch.sum(grad_y, (2, 3))
+    #     diff = prediction - target
+    #     grad_x = torch.abs(diff[:, :, :, 1:] - diff[:, :, :, :-1])
+    #     grad_y = torch.abs(diff[:, :, 1:, :] - diff[:, :, :-1, :])
+    #     image_loss = torch.sum(grad_x, (2, 3)) + torch.sum(grad_y, (2, 3))
 
-        return reduction(image_loss, M)
+    #     return reduction(image_loss, M)
 
+def gradient_loss(pred, grnd, mask):
+    M = torch.sum(mask, (2, 3))
+
+    diff = pred - grnd
+    diff = torch.mul(mask, diff)
+    grad_x = torch.abs(diff[:, :, :, 1:] - diff[:,:, :, :-1])
+    mask_x = torch.mul(mask[:,:, :, 1:], mask[:, :, :, :-1])
+    grad_x = torch.mul(mask_x, grad_x)
+    grad_y = torch.abs(diff[:,: , 1:, :] - diff[:, :, :-1, :])
+    mask_y = torch.mul(mask[:,: , 1:, :], mask[:, :, :-1, :])
+    grad_y = torch.mul(mask_y, grad_y)
+    image_loss = torch.sum(grad_x, (2, 3)) + torch.sum(grad_y, (2, 3))
+
+    return reduction_batch_based(image_loss, M)
+
+def l1_loss(pred, grnd, mask):
+    l1 = torch.nn.functional.l1_loss(pred, grnd, reduction='none') * mask
+    M = torch.sum(mask, (2, 3))
+    return reduction_batch_based(l1, M)
+
+def l1_grad_loss(pred, grnd, mask=None):
+    
+    if mask == None:
+        mask = torch.ones(pred.shape).to(pred.device)
+
+    mae_term = l1_loss(pred, grnd, mask)
+
+    grad_term = 0.0
+    for ds in range(4):
+        scale = pow(2, ds)
+
+        pred_scale = pred[:, ::scale, ::scale]
+        grnd_scale = grnd[:, ::scale, ::scale]
+        mask_scale = mask[:, ::scale, ::scale]
+
+        grad_term += gradient_loss(pred_scale, grnd_scale, mask_scale)
+
+    return mae_term + (0.5 * grad_term)
 
 def reduction_batch_based(image_loss, M):
     # average of all valid pixels of the batch
@@ -177,3 +234,22 @@ def reduction_batch_based(image_loss, M):
         return 0
     else:
         return torch.abs(torch.sum(image_loss) / divisor)
+
+
+def save_img(batch, path, debug=None, norm=False):
+    first = batch[0]
+    image = first.detach().cpu().numpy().squeeze()
+
+    if norm:
+        image = (image + 1.0) / 2.0
+    
+    image = image.clip(0, 1)
+    if len(image.shape) > 2:
+        image = np.transpose(image, [1, 2, 0])
+
+    pil_img = Image.fromarray((image * 255).astype(np.uint8))
+    if debug is not None:
+        draw = ImageDraw.Draw(pil_img)
+        draw.text((0, 0), debug, (0, 255, 255))
+    
+    pil_img.save(path)

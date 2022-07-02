@@ -51,7 +51,7 @@ class highResDataset(BaseDataset):
                 self.dir_qualdataset = os.path.join(opt.dataroot, 'qual_new')
                 self.images_dir_qualdataset = sorted(make_dataset(self.dir_qualdataset, 50))
 
-            if opt.data_mode == 'qual‌':
+            if opt.data_mode == 'qual':
                 print("qualitative dataset")
                 self.images_dir_all = self.images_dir_qualdataset
             else:
@@ -63,13 +63,12 @@ class highResDataset(BaseDataset):
             self.dir_multidataset = os.path.join(opt.dataroot, 'multi_dataset_complete_png_wb')
             self.images_dir_multidataset = sorted(make_dataset(self.dir_multidataset + '/1', 100000))
             self.images_dir_multidataset = self.images_dir_multidataset * 2
-            print(self.images_dir_multidataset)
             self.dir_portraitdataset = os.path.join(opt.dataroot, 'portrait_dataset_high_res_wb')
             self.images_dir_portraitdataset = sorted(make_dataset(self.dir_portraitdataset + '/1', 100000))
             self.images_dir_portraitdataset = self.images_dir_portraitdataset * 4
 
             # TO DO: here specify the directory for the generated data
-            # self.fake_data_root =
+            self.fake_data_root = opt.dataroot
             all_images = self.images_dir_multidataset + self.images_dir_ourdataset + self.images_dir_portraitdataset
             self.images_dir_all = []
             for image in all_images:
@@ -84,7 +83,6 @@ class highResDataset(BaseDataset):
         self.third_blur = opt.third_blur
 
     def __getitem__(self, index):
-        print(self.images_dir_all)
         image_path_temp = self.images_dir_all[index]
         image_name = image_path_temp.split('/')[-1]
         image_name = image_name.replace("_flashphoto", "")
@@ -119,8 +117,8 @@ class highResDataset(BaseDataset):
 
         else:
             if 'our_dataset_new_wb' in image_path_temp:
-                image_path = self.data_root + '/our_dataset_new_test_wb' + '/{}'.format(image_name)
-                fake_path = self.fake_data_root + '/our_dataset_new''/{}'.format(image_name)
+                image_path = self.data_root + '/our_dataset_new_wb' + '/{}'.format(image_name)
+                fake_path = self.fake_data_root + '/our_dataset_new_wb''/{}'.format(image_name)
             elif 'multi_dataset_complete_png' in image_path_temp:
                 multi_select = random.randint(1, 19)
                 image_path = self.data_root + '/multi_dataset_complete_png_wb' + '/{}'.format(
@@ -140,18 +138,21 @@ class highResDataset(BaseDataset):
         flash = Image.open(image_path.replace(".png", "_flash.png"))
         ambient_float = skimage.img_as_float(ambient)
         flash_float = skimage.img_as_float(flash)
-        # normalize ambient
-        if self.opt.normalize_ambient == 1:
-            ambient_brightness = self.getBrightness(ambient_float)
-            ambient_float = ambient_float * norm_amb / ambient_brightness
-            ambient_float[ambient_float < 0] = 0
-            ambient_float[ambient_float > 1] = 1
-        # normalize flash
-        if self.opt.normalize_flash == 1:
-            flash_brightness = self.getBrightness(flash_float)
-            flash_float = flash_float * norm_flash / flash_brightness
-            flash_float[flash_float < 0] = 0
-            flash_float[flash_float > 1] = 1
+        
+        # NOTE (chris): I don't think this is added to the opts
+        # # normalize ambient
+        # if self.opt.normalize_ambient == 1:
+        #     ambient_brightness = self.getBrightness(ambient_float)
+        #     ambient_float = ambient_float * norm_amb / ambient_brightness
+        #     ambient_float[ambient_float < 0] = 0
+        #     ambient_float[ambient_float > 1] = 1
+        # # normalize flash
+        # if self.opt.normalize_flash == 1:
+        #     flash_brightness = self.getBrightness(flash_float)
+        #     flash_float = flash_float * norm_flash / flash_brightness
+        #     flash_float[flash_float < 0] = 0
+        #     flash_float[flash_float > 1] = 1
+
         # compute flashPhoto
         # flash photo = whitebalanced flash + colored ambient
         flashPhoto_float = flash_float + ambient_float
@@ -193,8 +194,9 @@ class highResDataset(BaseDataset):
             fake_ambient_path = fake_path + "_fake_B.png"
             fake_flashPhoto_path = fake_path + "_fake_A.png"
         else:
-            fake_ambient_path = fake_path.replace(".png", "_fake_B.png")
-            fake_flashPhoto_path = fake_path.replace(".png", "_fake_A.png")
+            fake_ambient_path = fake_path.replace(".png", "_fake_ambient_dec.png")
+            fake_flashPhoto_path = fake_path.replace(".png", "_fake_flashPhoto_gen.png")
+
         fake_ambient = Image.open(fake_ambient_path)
         fake_flashPhoto = Image.open(fake_flashPhoto_path)
 
@@ -203,9 +205,11 @@ class highResDataset(BaseDataset):
 
         fake_ambient_fl = skimage.img_as_float(fake_ambient)
         fake_flashPhoto_fl = skimage.img_as_float(fake_flashPhoto)
+        
+        # NOTE (chris): I wrote the results out in linear space
+        # fake_ambient_fl = self.lin(fake_ambient_fl)
+        # fake_flashPhoto_fl = self.lin(fake_flashPhoto_fl)
 
-        fake_ambient_fl = self.lin(fake_ambient_fl)
-        fake_flashPhoto_fl = self.lin(fake_flashPhoto_fl)
         if self.third_blur or self.opt.all_blur:
             if self.third_blur:
                 blur = random.randint(1, 3)
