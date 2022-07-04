@@ -26,13 +26,13 @@ echo $CUDA_AVAILABLE_DEVICES
 #                 --name high_res --model highres --direction AtoB \
 #                 --display_id -1 --dataset_mode highres --ratio 1 \
 #                 --checkpoints_dir /project/aksoy-lab/chris/high_res_output/ \
-#                 --num_threads 0  --batch_size 2
+#                 --num_threads 0  --batch_size 2 --third_bad --all_fake --continue_train
 
 python train.py --dataroot /localscratch/ctc32/data/data_big \
                 --name high_res_b2a --model highres --direction BtoA \
                 --display_id -1 --dataset_mode highres --ratio 1 \
                 --checkpoints_dir /project/aksoy-lab/chris/high_res_output/ \
-                --num_threads 0  --batch_size 2
+                --num_threads 0  --batch_size 2 --third_bad --all_fake --continue_train
 
 #srun --qos=overcap python train.py --dataroot /project/aksoy-lab/Sepideh/data_big --name  highRes_AtoB_full_fake_third_bad --model pix2pix --direction AtoB --display_id -1 --dataset_mode highres --ratio 1   --all_fake --third_bad
 #srun --qos=overcap python test.py --dataroot /project/aksoy-lab/Sepideh/data_big --name  highRes_BtoA_third_bad --model pix2pix --direction BtoA --dataset_mode highres --ratio 1

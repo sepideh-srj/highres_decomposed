@@ -84,6 +84,7 @@ class HighResModel(BaseModel):
        
         # print("input range:", self.input_real.min(), self.input_real.max())
         pred = (3 * self.input_real * self.fake_ratio + 9 * self.fake_ratio + 5 * self.input_real + 3) / 4
+
         # save_img(pred, '/project/aksoy-lab/chris/high_res_output/debug/AtoB/pred.png', norm=True)
         # save_img(self.gr_high, '/project/aksoy-lab/chris/high_res_output/debug/AtoB/grnd.png', norm=True)
         save_img(pred, '/project/aksoy-lab/chris/high_res_output/debug/BtoA/pred.png', norm=True)
